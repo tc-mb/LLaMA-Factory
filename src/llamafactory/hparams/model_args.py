@@ -348,6 +348,23 @@ class ProcessorArguments:
         default=128,
         metadata={"help": "The maximum number of sampled frames for video inputs."},
     )
+    enable_high_fps: bool = field(
+        default=False,
+        metadata={"help": "Whether to enable high frame rate mode for video sampling."},
+    )
+    double_frame_duration: int = field(
+        default=30,
+        metadata={"help": "The duration (in seconds) within which to double the frame sampling rate."},
+    )
+    packing_maxlen: int = field(
+        default=3,
+        metadata={"help": "The maximum number of packings for video inputs."},
+    )
+    time_scale: float = field(
+        default=0.1,
+        metadata={"help": "The time scale (in seconds) for temporal ids in video inputs."},
+    )
+
     use_audio_in_video: bool = field(
         default=False,
         metadata={"help": "Whether or not to use audio in video inputs."},

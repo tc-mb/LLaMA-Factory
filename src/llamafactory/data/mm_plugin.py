@@ -921,6 +921,87 @@ class LlavaNextVideoPlugin(BasePlugin):
 
 @dataclass
 class MiniCPMVPlugin(BasePlugin):
+    def _get_video_sample_indices_and_temporal_ids(
+        self, video_stream: "Stream", video_fps: float, video_maxlen: int, **kwargs
+    ) -> tuple[list[int], Optional[list[list[int]]]]:
+        r"""Compute video sample indices according to fps."""
+        total_frames = video_stream.frames
+        if total_frames == 0:  # infinite video
+            return np.linspace(0, video_maxlen - 1, video_maxlen).astype(np.int32), None
+        
+        double_frame_duration = kwargs.get("double_frame_duration", 30)
+        packing_maxlen = kwargs.get("packing_maxlen", 3)
+        time_scale = kwargs.get("time_scale", 0.1)
+
+        duration_s = float(video_stream.duration * video_stream.time_base)
+        sample_frames = max(1, math.floor(duration_s * video_fps))
+        if duration_s < double_frame_duration and video_fps <= 5:
+            packing_nums = 2
+            video_fps *= 2
+        elif sample_frames <= video_maxlen:
+            packing_nums = 1
+            sample_frames = min(total_frames, video_maxlen, sample_frames)
+        else:
+            packing_nums = math.ceil(duration_s * video_fps / video_maxlen)
+            if packing_nums <= packing_maxlen:
+                sample_frames = round(duration_s * video_fps)
+            else:
+                packing_nums = packing_maxlen
+                sample_frames = round(packing_maxlen * video_maxlen)
+
+        frame_indices = np.linspace(0, total_frames - 1, sample_frames).astype(np.int32)
+
+        def map_to_nearest_scale(values, scale):
+            from scipy.spatial import cKDTree
+            """将值映射到最接近的刻度（高效大规模版本）"""
+            tree = cKDTree(np.asarray(scale)[:, None])
+            _, indices = tree.query(np.asarray(values)[:, None])
+            return np.asarray(scale)[indices]
+
+        frame_ts = frame_indices.astype(np.float32) / (total_frames / duration_s)
+        scale = np.arange(0, duration_s, time_scale)
+        frame_ts_id = map_to_nearest_scale(frame_ts, scale) / time_scale
+        frame_ts_id = frame_ts_id.astype(np.int32)
+        temporal_ids = [
+            frame_ts_id[i:i + packing_nums].tolist()
+            for i in range(0, len(frame_ts_id), packing_nums)
+        ]
+        print(duration_s, video_stream.frames, video_stream.duration, video_stream.time_base, frame_indices, temporal_ids)
+        return frame_indices, temporal_ids
+    
+    @override
+    def _get_video_sample_indices(
+        self, video_stream: "Stream", video_fps: float, video_maxlen: int, **kwargs
+    ) -> list[int]:
+        return self._get_video_sample_indices_and_temporal_ids(
+            video_stream, video_fps, video_maxlen, **kwargs
+        )[0]
+    
+    def _get_video_sample_temporal_ids(
+        self, video_stream: "Stream", video_fps: float, video_maxlen: int, **kwargs
+    ) -> Optional[list[list[int]]]:
+        return self._get_video_sample_indices_and_temporal_ids(
+            video_stream, video_fps, video_maxlen, **kwargs
+        )[1]
+
+    def _get_videos_temporal_ids(self, videos: list["VideoInput"], **kwargs) -> dict[str, Optional[list[list[list[int]]]]]:
+        results = []
+        for video in videos:
+            temporal_ids: list[list[int]] = []
+            if _check_video_is_nested_images(video):
+                for frame in video:
+                    if not is_valid_image(frame) and not isinstance(frame, dict) and not os.path.exists(frame):
+                        raise ValueError("Invalid image found in video frames.")
+                return {"temporal_ids": None}
+            else:
+                container = av.open(video, "r")
+                video_stream = next(stream for stream in container.streams if stream.type == "video")
+                temporal_ids = self._get_video_sample_temporal_ids(video_stream, **kwargs)
+
+            results.append(temporal_ids)
+
+        return {"temporal_ids": results}
+
     @override
     def _get_mm_inputs(
         self,
@@ -954,14 +1035,40 @@ class MiniCPMVPlugin(BasePlugin):
             mm_inputs.update(image_inputs)
 
         if len(videos) != 0:
-            videos = self._regularize_videos(
-                videos,
-                image_max_pixels=getattr(processor, "video_max_pixels", 256 * 256),
-                image_min_pixels=getattr(processor, "video_min_pixels", 16 * 16),
-                video_fps=getattr(processor, "video_fps", 2.0),
-                video_maxlen=getattr(processor, "video_maxlen", 128),
-            )["videos"]
-            video_inputs = image_processor(videos, do_pad=True, max_slice_nums=2, return_tensors="pt")
+            enable_high_fps = getattr(processor, "enable_high_fps", False)
+            if enable_high_fps:
+                double_frame_duration=getattr(processor, "double_frame_duration", 30)
+                packing_maxlen=getattr(processor, "packing_maxlen", 3)
+                time_scale=getattr(processor, "time_scale", 0.1)
+                videos = self._regularize_videos(
+                    videos,
+                    image_max_pixels=getattr(processor, "video_max_pixels", 256 * 256),
+                    image_min_pixels=getattr(processor, "video_min_pixels", 16 * 16),
+                    video_fps=getattr(processor, "video_fps", 15.0),
+                    video_maxlen=getattr(processor, "video_maxlen", 128),
+                    double_frame_duration=double_frame_duration,
+                    packing_maxlen=packing_maxlen,
+                    time_scale=time_scale,
+                )["videos"]
+                temporal_ids = self._get_videos_temporal_ids(
+                    videos,
+                    video_fps=getattr(processor, "video_fps", 15.0),
+                    video_maxlen=getattr(processor, "video_maxlen", 128),
+                    double_frame_duration=double_frame_duration,
+                    packing_maxlen=packing_maxlen,
+                    time_scale=time_scale,
+                )["temporal_ids"]
+                video_inputs = image_processor(videos, do_pad=True, return_tensors="pt", temporal_ids=temporal_ids)
+            else:
+                videos = super()._regularize_videos(
+                    videos,
+                    image_max_pixels=getattr(processor, "video_max_pixels", 256 * 256),
+                    image_min_pixels=getattr(processor, "video_min_pixels", 16 * 16),
+                    video_fps=getattr(processor, "video_fps", 2.0),
+                    video_maxlen=getattr(processor, "video_maxlen", 128),
+                )["videos"]
+                video_inputs = image_processor(videos, do_pad=True, return_tensors="pt")
+
             mm_inputs.update(video_inputs)
 
         if len(audios) != 0:

@@ -1,0 +1,42 @@
+### model
+model_name_or_path: /cache/ninghongbo/model/MiniCPM-V-4_5 # 可以是MiniCPM-V或者MiniCPM-o的本地模型
+trust_remote_code: true
+freeze_vision_tower: true #冻结图像模块
+print_param_status: true
+flash_attn: fa2 #使用flash attn2
+
+### method
+stage: sft
+do_train: true
+finetuning_type: full #全量微调
+deepspeed: examples/deepspeed/ds_z2_config.json # deepspeed使用zero2分布式训练
+ 
+### dataset
+dataset: mllm_video_demo # 改成你上面data/data_info.json的文件下新增的键名
+template: minicpm_v #
+cutoff_len: 30720
+max_samples: 1000
+overwrite_cache: true
+preprocessing_num_workers: 16
+
+### output
+output_dir: /cache/ninghongbo/saves/minicpmv4_5/full/sft
+logging_steps: 1
+save_steps: 100
+plot_loss: true
+overwrite_output_dir: true
+save_total_limit: 10
+
+### train
+per_device_train_batch_size: 2
+gradient_accumulation_steps: 1
+learning_rate: 1.0e-5
+num_train_epochs: 20.0
+lr_scheduler_type: cosine
+warmup_ratio: 0.1 # warmup(学习率上升)占训练数据的10%
+bf16: true #bf16精度
+ddp_timeout: 180000000
+save_only_model: true
+
+### eval
+do_eval: false

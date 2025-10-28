@@ -1,0 +1,47 @@
+### model
+model_name_or_path: /cache/ninghongbo/model/MiniCPM-V-4_5 # 可以是MiniCPM-V或者MiniCPM-o的本地模型
+trust_remote_code: true
+
+### method
+stage: sft # sft训练
+do_train: true
+finetuning_type: lora # lora微调
+lora_target: q_proj,v_proj # lora层插入哪里
+
+### dataset
+dataset: mllm_video_demo # 改成你上面data/data_info.json的文件下新增的键名
+template: minicpm_v # 不要改
+cutoff_len: 6000 # 包多模态在哪占用的模型token长度
+max_samples: 1000 #最多用多少条数据
+overwrite_cache: true
+preprocessing_num_workers: 16
+
+### output
+output_dir: /cache/ninghongbo/saves/minicpmv4_5/lora/sft
+logging_steps: 1
+save_steps: 1000 #多少步报错一次
+plot_loss: true # 是否绘制损失函数
+overwrite_output_dir: true #是否覆盖之前的保存
+save_total_limit: 5
+
+### train
+per_device_train_batch_size: 1 #训练batch_size
+gradient_accumulation_steps: 1 #梯度累积次数
+learning_rate: 1.0e-5 # 学习率
+num_train_epochs: 20.0 #最多训练轮次
+lr_scheduler_type: cosine
+warmup_ratio: 0.1
+bf16: true
+ddp_timeout: 180000000
+save_only_model: true
+
+### eval
+do_eval: false
+
+### video processor
+video_fps: 2.0
+video_maxlen: 16
+enable_high_fps: true
+double_frame_duration: 30
+packing_maxlen: 9
+time_scale: 0.1

@@ -85,6 +85,10 @@ def patch_processor(
     setattr(processor, "video_min_pixels", model_args.video_min_pixels)
     setattr(processor, "video_fps", model_args.video_fps)
     setattr(processor, "video_maxlen", model_args.video_maxlen)
+    setattr(processor, "enable_high_fps", model_args.enable_high_fps)
+    setattr(processor, "double_frame_duration", model_args.double_frame_duration)
+    setattr(processor, "packing_maxlen", model_args.packing_maxlen)
+    setattr(processor, "time_scale", model_args.time_scale)
     setattr(processor, "use_audio_in_video", model_args.use_audio_in_video)
     setattr(processor, "audio_sampling_rate", model_args.audio_sampling_rate)
 
